@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.8] — 2026-06-18
+
+### Fixed
+
+- **Registry and gitignore after restore** — when files are restored on a 304 (unchanged repo), the uninstall registry and `.git/info/exclude` now correctly use local paths instead of repo paths. Previously, `pathMappings` users would get wrong paths recorded (e.g. `PlatformA/.claude/` instead of `.claude/`).
+
+### Documentation
+
+- Added **Multi-project repositories** section to the README covering per-project and per-platform subfolder patterns with `pathMappings`.
+- Clarified that `targetFolders` disables are only needed when the repo has conflicting root-level files alongside per-platform subfolders.
+
+---
+
 ## [1.0.7] — 2026-06-17
 
 ### Fixed
@@ -28,7 +41,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- **Target folders toggles** — `aiSetupSync.targetFolders` is now an object (`path → true/false`) instead of a string array. Each default path can be toggled on or off directly in the VS Code settings UI without editing JSON. Custom paths can be added via the "Add Item" button. Existing configurations using the old array format will fall back to defaults.
+- **Target folders toggles** — `aiSetupSync.targetFolders` is now an object (`path → true/false`) instead of a string array. Each default path can be toggled on or off directly in the VS Code settings UI without editing JSON. Custom paths can be added via the "Add Item" button.
 
 ---
 
@@ -86,7 +99,7 @@ Initial release.
 ### Features
 
 - **Automatic sync** — pulls on project open and re-checks daily in the background.
-- **Multi-tool support** — Claude Code, GitHub Copilot, Cursor, Google Antigravity 2.0, OpenAI Codex, and any custom paths via `aiSetupSync.targetFolders`.
+- **Multi-tool support** — Claude Code, GitHub Copilot, Cursor, Google Antigravity, OpenAI Codex, and any custom paths via `aiSetupSync.targetFolders`.
 - **Conflict resolution** — detects local edits and prompts per file with a built-in diff viewer before overwriting. Configurable via `aiSetupSync.conflictPolicy` (`prompt` / `overwrite` / `skip`).
 - **Path mappings** — translate repo folder names to the local paths AI tools expect (e.g. `Claude/` → `.claude/`).
 - **Configurable branch** — sync from `main`, `master`, or any branch via `aiSetupSync.branch`.

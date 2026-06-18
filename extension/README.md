@@ -1,6 +1,6 @@
 # AI Setup Sync
 
-Keep your team's AI setup files — Claude Code, GitHub Copilot, Cursor, Google Antigravity 2.0,
+Keep your team's AI setup files — Claude Code, GitHub Copilot, Cursor, Google Antigravity,
 Gemini CLI, OpenAI Codex, and more — in sync across every project, automatically.
 
 AI teams maintain per-tool configuration files: system prompts, coding instructions, agent skills,
@@ -17,9 +17,9 @@ detects conflicts and lets them choose what to keep.
 ## Features
 
 - **Automatic sync** — pulls on project open and re-checks daily in the background.
-- **Multi-tool support** — Claude Code, GitHub Copilot, Cursor, Google Antigravity 2.0, Gemini CLI, OpenAI Codex, and any custom paths.
+- **Multi-tool support** — Claude Code, GitHub Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex, and any custom paths.
 - **Conflict resolution** — detects local edits and prompts per file, with a built-in diff viewer before overwriting.
-- **Path mappings** — translate repo folder names to the local paths tools expect (e.g. `Claude/` → `.claude/`).
+- **Path mappings** — translate any repo path to the local path tools expect (e.g. `Claude/` → `.claude/`, or `PlatformA/.claude/` → `.claude/`).
 - **Configurable branch** — sync from `main`, `master`, or any branch your repo uses.
 - **Git exclude** — synced files are silently added to `.git/info/exclude` so they never appear as pending changes.
 - **Private & SSO repos** — GitHub token stored securely in the OS keychain (VS Code SecretStorage).
@@ -41,7 +41,7 @@ The extension syncs from any GitHub repository you own. Here's how to set one up
    ```
    your-setup-repo/
    ├── CLAUDE.md                          # Claude Code root instructions
-   ├── AGENTS.md                          # Cross-tool instructions (Antigravity 2.0, Cursor, Claude Code)
+   ├── AGENTS.md                          # Cross-tool instructions (Antigravity, Cursor, Claude Code)
    ├── .claude/
    │   ├── instructions/
    │   │   └── coding-style.md
@@ -55,7 +55,7 @@ The extension syncs from any GitHub repository you own. Here's how to set one up
    │       └── coding-style.mdc           # Cursor rules
    ├── .agents/
    │   └── skills/
-   │       └── code-review.md             # Google Antigravity 2.0 skills
+   │       └── code-review.md             # Google Antigravity skills
    ├── .gemini/
    │   └── settings.json                  # Gemini CLI config
    ├── GEMINI.md                          # Gemini CLI workspace context
@@ -90,8 +90,8 @@ By default, the extension syncs these paths from the `main` branch (configurable
 | `CLAUDE.md` | Claude Code |
 | `.github` | GitHub Copilot |
 | `.cursor` | Cursor |
-| `.agents` | Google Antigravity 2.0 |
-| `AGENTS.md` | Google Antigravity 2.0 (also read by Cursor and Claude Code) |
+| `.agents` | Google Antigravity |
+| `AGENTS.md` | Google Antigravity (also read by Cursor and Claude Code) |
 | `.gemini` | Gemini CLI |
 | `GEMINI.md` | Gemini CLI |
 | `.codex` | OpenAI Codex |
@@ -113,6 +113,51 @@ Configurable via `aiSetupSync.targetFolders` — toggle defaults on or off, or a
 | `aiSetupSync.pathMappings` | `{}` | Rename paths as files are synced from the repo to your project. `"Claude": ".claude"` rewrites `Claude/instructions/style.md` → `.claude/instructions/style.md`. More specific (longer) keys always win. |
 | `aiSetupSync.conflictPolicy` | `prompt` | How to handle files you've edited locally that differ from the repository version. `prompt` — ask per file, with a *Show diff* button. `overwrite` — always replace. `skip` — never touch local edits. |
 | `aiSetupSync.syncMode` | `always` | When to sync automatically. `always` — on open + daily background check. `onOpen` — on open only. `manual` — only when you run *Sync Now*. |
+
+## Multi-project repositories
+
+If your repo organises setup files under per-project subfolders (e.g. `Project1/`, `Project2/`) or per-platform subfolders (e.g. `PlatformA/`, `PlatformB/`), you can use `pathMappings` to pull only from the subfolder that matches your current project.
+
+**Example repo layout:**
+```
+your-setup-repo/
+├── PlatformA/
+│   ├── .claude/
+│   ├── CLAUDE.md
+│   └── .github/
+└── PlatformB/
+    ├── .claude/
+    ├── CLAUDE.md
+    └── .github/
+```
+
+**Fetching `.claude` and `CLAUDE.md` from PlatformA:**
+```json
+"aiSetupSync.pathMappings": {
+  "PlatformA/.claude": ".claude",
+  "PlatformA/CLAUDE.md": "CLAUDE.md"
+}
+```
+
+Mapping keys can be any repo path, not just top-level folders. In this example:
+
+- `PlatformA/.claude/` and everything inside → `.claude/` locally
+- `PlatformA/CLAUDE.md` → `CLAUDE.md` locally
+- `PlatformA/.github/`, `PlatformB/`, and everything else → ignored, no mapping defined
+
+**If your repo also has shared files at the root level** (e.g. a common `.claude/` alongside the per-platform folders) they will be synced too, because `targetFolders` includes `.claude` by default. To prevent that, disable the root-level entries:
+```json
+"aiSetupSync.targetFolders": {
+  ".claude": false,
+  "CLAUDE.md": false
+},
+"aiSetupSync.pathMappings": {
+  "PlatformA/.claude": ".claude",
+  "PlatformA/CLAUDE.md": "CLAUDE.md"
+}
+```
+
+To switch platforms, update the mapping keys (e.g. replace `PlatformA` with `PlatformB`). Everything else stays the same.
 
 ## Conflict handling
 

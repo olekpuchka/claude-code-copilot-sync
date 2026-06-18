@@ -188,8 +188,14 @@ export async function syncFolder(
       restored = missing.length;
       // Keep registry + gitignore in sync after restore.
       try {
-        setWorkspaceFiles(workspaceFolder.uri.fsPath, state.files);
-        await applyGitExclude(workspaceFolder, Object.keys(state.files));
+        const localFiles: Record<string, string> = {};
+        for (const [repoPath, sha] of Object.entries(state.files)) {
+          const lp = toLocalPath(repoPath, sortedMappings);
+          validateLocalPath(lp);
+          localFiles[lp] = sha;
+        }
+        setWorkspaceFiles(workspaceFolder.uri.fsPath, localFiles);
+        await applyGitExclude(workspaceFolder, Object.keys(localFiles));
       } catch (err) {
         log(`Warning: failed to update registry/gitignore after restore: ${err instanceof Error ? err.message : String(err)}`);
       }

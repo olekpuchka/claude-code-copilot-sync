@@ -1,8 +1,8 @@
 {
   "name": "ai-setup-sync",
   "displayName": "AI Setup Sync",
-  "description": "Syncs shared AI setup files — Claude Code, GitHub Copilot, Cursor, Google Antigravity 2.0, Gemini CLI, OpenAI Codex and more — from a GitHub repository into your project, and keeps them current automatically.",
-  "version": "1.0.7",
+  "description": "Syncs shared AI setup files — Claude Code, GitHub Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex and more — from a GitHub repository into your project, and keeps them current automatically.",
+  "version": "1.0.8",
   "publisher": "olekpuchka",
   "author": {
     "name": "Olek Puchka"
