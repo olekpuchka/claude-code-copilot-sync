@@ -4,6 +4,16 @@ All notable changes to the **AI Setup Sync** extension are documented here.
 
 ---
 
+## [1.3.1] — 2026-06-23
+
+### Fixed
+
+- **Settings changes now clean up excluded files** — when `targetFolders` or `pathMappings` settings change, previously-synced files that are no longer covered by the new settings are deleted on the next sync. Unmodified copies are removed silently; locally-edited copies follow `aiSetupSync.conflictPolicy`. Previously, excluded files were silently forgotten and left on disk. The fix works by invalidating the cached GitHub tree ETag before re-syncing, forcing a full tree fetch that can evaluate the new settings against every previously-synced file.
+- **Path mapping changes clean up old local paths** — when a `pathMappings` value changes (e.g. `".claude"` → `"my-claude"`) or a key is removed, files at the old local path are now deleted if unmodified, or left alone if you've edited them. Previously, the old copies were orphaned on disk and had to be removed manually.
+- **Delete conflict prompt wording** — the prompt shown when a locally-edited file is removed from the repo or excluded by settings now reads "removed from the repo or excluded by your settings" instead of just "removed from the shared repo", making it clear which event triggered the dialog.
+
+---
+
 ## [1.3.0] — 2026-06-22
 
 ### Added

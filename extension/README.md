@@ -56,7 +56,7 @@ detects those edits and lets them choose what to keep, so no work is ever silent
 - **Multi-tool support** — Claude Code, GitHub Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex, and any custom path.
 - **Conflict resolution** — detects local edits and prompts per file, with a built-in diff viewer before anything is overwritten.
 - **Path mappings** — translate any repo path to the local path a tool expects (e.g. `Claude/` → `.claude/`), or map a whole subfolder to your project root with `"projectA": "/"`.
-- **Safe deletions** — files removed from the repo are removed locally too; your local edits are protected, and emptied directories are cleaned up.
+- **Safe deletions** — files removed from the repo or excluded by a settings change are removed locally; your local edits are protected, and emptied directories are cleaned up.
 - **Stays out of git** — synced files are added to `.git/info/exclude`, so they never clutter your pending changes.
 - **Private & SSO repos** — GitHub token stored securely in the OS keychain (VS Code SecretStorage).
 - **Configurable** — choose the branch, which folders to sync, and how conflicts resolve.
@@ -324,10 +324,12 @@ On each sync the extension compares file content against what it last wrote:
   | *Review each* | Decide file by file — each dialog has a *Show diff* button to compare local vs. repository. |
   | Escape / close | Re-prompts on the next sync. |
 
-**Files removed from the repo** are deleted from your project on the next sync. Unmodified files are
-removed silently; files you've edited locally follow `aiSetupSync.conflictPolicy` — with `prompt`
-you're asked before deletion (Escape re-prompts next sync), with `skip` they're kept on disk.
-Directories that become empty after deletions are removed automatically.
+**Files removed from the repo** or **excluded by a settings change** (e.g. you toggled a folder
+off in `targetFolders`, changed a `pathMappings` key, or changed its destination path) are deleted
+from your project on the next sync. Unmodified files are removed silently; files you've edited
+locally follow `aiSetupSync.conflictPolicy` — with `prompt` you're asked before deletion (Escape
+re-prompts next sync), with `skip` they're kept on disk. Directories that become empty after
+deletions are removed automatically.
 
 ## Status bar
 

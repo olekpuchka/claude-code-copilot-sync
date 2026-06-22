@@ -491,6 +491,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // would flash an error and waste requests. We wait for the value to settle, and ignore
   // conflictPolicy (which doesn't change the sync's inputs, only how conflicts resolve).
   const CONTENT_KEYS = ["repository", "branch", "targetFolders", "pathMappings"];
+  // Settings that change which files are managed — a 304 from GitHub won't trigger the
+  // full-tree path, so we invalidate the cached ETag to force a fresh tree fetch that
+  // can detect and clean up newly-excluded files.
+  const MANAGED_SET_KEYS = ["targetFolders", "pathMappings"];
   let resyncTimer: NodeJS.Timeout | undefined;
   const clearResync = () => {
     if (resyncTimer) {
@@ -511,18 +515,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!CONTENT_KEYS.some((k) => e.affectsConfiguration(`${CONFIG}.${k}`))) {
         return;
       }
+      // Capture at event time so each debounce cycle is self-contained — no shared
+      // flag that could be reset before the awaits inside fire() complete.
+      const needsEtagInvalidation = MANAGED_SET_KEYS.some((k) => e.affectsConfiguration(`${CONFIG}.${k}`));
       clearResync();
-      const fire = () => {
+      const fire = async () => {
         // If a sync is already in flight, retry shortly rather than dropping the change —
         // otherwise the edited setting wouldn't apply until the next focus/open sync.
         if (syncing) {
-          resyncTimer = setTimeout(fire, CONFIG_RESYNC_DEBOUNCE_MS);
+          resyncTimer = setTimeout(() => void fire(), CONFIG_RESYNC_DEBOUNCE_MS);
           return;
         }
         resyncTimer = undefined;
+        // Invalidate the cached tree ETag so the next sync does a full tree fetch.
+        // The 304 short-circuit path can't detect files excluded by the new settings —
+        // a fresh fetch reaches the full-tree path which handles cleanup correctly.
+        if (needsEtagInvalidation) {
+          try {
+            for (const folder of vscode.workspace.workspaceFolders ?? []) {
+              const current = getState(context, folder);
+              if (current.treeEtag) {
+                await saveState(context, folder, { ...current, treeEtag: undefined });
+              }
+            }
+          } catch (err) {
+            log(`Warning: failed to invalidate tree ETag after settings change: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
         void runSync(context, false);
       };
-      resyncTimer = setTimeout(fire, CONFIG_RESYNC_DEBOUNCE_MS);
+      resyncTimer = setTimeout(() => void fire(), CONFIG_RESYNC_DEBOUNCE_MS);
     })
   );
 }

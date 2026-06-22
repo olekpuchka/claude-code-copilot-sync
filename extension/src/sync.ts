@@ -3,7 +3,7 @@ import { gitBlobSha } from "./blobSha";
 import { getRawFile, getTree, RepoRef, TreeEntry } from "./github";
 import { getState, saveState, SyncState } from "./state";
 import { computePatterns, upsertBlock } from "./gitignore";
-import { setWorkspaceFiles } from "./registry";
+import { readRegistry, setWorkspaceFiles } from "./registry";
 import { log } from "./output";
 import { cacheRemoteContent, clearRemoteContent, remoteDocUri } from "./remoteContent";
 
@@ -411,8 +411,12 @@ export async function syncFolder(
   const removedInRepo = Object.keys(state.files).filter(
     (p) => !remotePaths.has(p) && !allRepoPaths.has(p) && !skippedRepoPaths.has(p)
   );
-  // Previously synced files still in the repo but now excluded by targetFolders/pathMappings — silently drop from state.
-  const excludedBySettings = Object.keys(state.files).filter((p) => !remotePaths.has(p) && allRepoPaths.has(p));
+  // Previously synced files still in the repo but now excluded by targetFolders/pathMappings.
+  // Treat identically to removedInRepo: unmodified copies are deleted silently, locally-
+  // edited copies go through the conflict prompt so the user decides what to keep.
+  const excludedBySettings = Object.keys(state.files).filter(
+    (p) => !remotePaths.has(p) && allRepoPaths.has(p) && !skippedRepoPaths.has(p)
+  );
 
   const result: SyncResult = {
     added: 0,
@@ -483,20 +487,17 @@ export async function syncFolder(
     }
   }
 
-  // Forget excluded files in our state (disabled via targetFolders/pathMappings — not deleted from disk).
-  for (const p of excludedBySettings) {
-    delete newState.files[p];
-  }
-
-  // Delete files removed from the repo. Unmodified files are deleted silently;
-  // locally-edited ones are handled per conflictPolicy.
+  // Delete files removed from the repo, plus files excluded by the current target folder /
+  // path mapping settings. Unmodified files are deleted silently; locally-edited ones are
+  // handled per conflictPolicy.
   let deleteWasDismissed = false;
-  if (removedInRepo.length > 0) {
+  const allRemovedPaths = [...removedInRepo, ...excludedBySettings];
+  if (allRemovedPaths.length > 0) {
     type RemovedEntry = { repoPath: string; localPath: string };
     const safeToDelete: RemovedEntry[] = [];
     const editedAndRemoved: RemovedEntry[] = [];
 
-    await parallelLimit(removedInRepo, DISK_CONCURRENCY, async (repoPath) => {
+    await parallelLimit(allRemovedPaths, DISK_CONCURRENCY, async (repoPath) => {
       const localPath = toLocalPath(repoPath, sortedMappings);
       validateLocalPath(localPath);
       const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, localPath);
@@ -548,7 +549,7 @@ export async function syncFolder(
       } else {
         if (!deleteWasDismissed) {
           result.keptDeleted++;
-          fileLog.push(`  ${localPath} (kept — deleted in repo)`);
+          fileLog.push(`  ${localPath} (kept — no longer synced)`);
           // User explicitly chose to keep — stop tracking so we don't re-prompt next sync.
           delete newState.files[repoPath];
         }
@@ -557,29 +558,7 @@ export async function syncFolder(
     }
 
     // Remove directories that became empty after file deletions (deepest first).
-    if (deletedLocalPaths.length > 0) {
-      const dirCandidates = new Set<string>();
-      for (const localPath of deletedLocalPaths) {
-        let dir = localPath.includes("/") ? localPath.slice(0, localPath.lastIndexOf("/")) : "";
-        while (dir) {
-          dirCandidates.add(dir);
-          dir = dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "";
-        }
-      }
-      const sortedDirs = [...dirCandidates].sort((a, b) => b.length - a.length);
-      for (const dir of sortedDirs) {
-        const dirUri = vscode.Uri.joinPath(workspaceFolder.uri, dir);
-        try {
-          const entries = await vscode.workspace.fs.readDirectory(dirUri);
-          if (entries.length === 0) {
-            await vscode.workspace.fs.delete(dirUri, { useTrash: false });
-            fileLog.push(`  ${dir}/ (directory removed)`);
-          }
-        } catch {
-          // Directory already gone or inaccessible — skip.
-        }
-      }
-    }
+    await pruneEmptyParentDirs(deletedLocalPaths, workspaceFolder.uri, fileLog);
   }
 
   // If the user dismissed any conflict prompt (Escape/X) without making a
@@ -631,6 +610,37 @@ export async function syncFolder(
       localFiles[lp] = sha;
     }
   }
+  // Detect orphaned local files: paths tracked in the previous registry that are no
+  // longer in the new one. This happens when a pathMapping value changes (file moves
+  // to a new local path, old copy left behind) or its key is removed (file excluded
+  // but toLocalPath computed the wrong path so the allRemovedPaths loop missed it).
+  // Only delete unmodified copies — if the user edited the file, leave it alone.
+  const prevRegFiles = readRegistry().workspaces[workspaceFolder.uri.fsPath]?.files ?? {};
+  const orphanedLocalPaths = Object.keys(prevRegFiles).filter((lp) => !(lp in localFiles));
+  if (orphanedLocalPaths.length > 0) {
+    const orphanDeletedPaths: string[] = [];
+    await parallelLimit(orphanedLocalPaths, DISK_CONCURRENCY, async (localPath) => {
+      const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, localPath);
+      const onDisk = await readIfExists(fileUri);
+      if (!onDisk) {
+        return; // already gone
+      }
+      if (gitBlobSha(onDisk) !== prevRegFiles[localPath]) {
+        return; // user edited it — leave it alone
+      }
+      try {
+        await vscode.workspace.fs.delete(fileUri, { useTrash: false });
+        result.deleted++;
+        fileLog.push(`  ${localPath} (deleted — path mapping changed)`);
+        orphanDeletedPaths.push(localPath);
+      } catch (err) {
+        log(`Warning: could not delete ${localPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+    // Remove directories that became empty after orphan deletions.
+    await pruneEmptyParentDirs(orphanDeletedPaths, workspaceFolder.uri, fileLog);
+  }
+
   try {
     setWorkspaceFiles(workspaceFolder.uri.fsPath, localFiles);
     await applyGitExclude(workspaceFolder, Object.keys(localFiles));
@@ -855,7 +865,7 @@ async function resolveDeleteConflicts(
   // to per-file review ("Review each" with one item is the same thing).
   if (localPaths.length > 1) {
     const choice = await vscode.window.showWarningMessage(
-      `${localPaths.length} setup files were removed from the shared repo but you've edited them locally. Delete anyway?`,
+      `${localPaths.length} setup files are no longer synced (removed from the repo or excluded by your settings) but you've edited them locally. Delete them?`,
       { modal: true },
       "Delete all",
       "Keep all",
@@ -878,7 +888,7 @@ async function resolveDeleteConflicts(
   const toDelete = new Set<string>();
   for (const localPath of localPaths) {
     const per = await vscode.window.showWarningMessage(
-      `"${localPath}" was removed from the shared repo but you've edited it locally. Delete it?`,
+      `"${localPath}" is no longer synced (removed from the repo or excluded by your settings) but you've edited it locally. Delete it?`,
       { modal: true },
       "Delete",
       "Keep mine"
@@ -891,6 +901,33 @@ async function resolveDeleteConflicts(
     }
   }
   return { shouldDelete: (p) => toDelete.has(p), wasDismissed: false };
+}
+
+async function pruneEmptyParentDirs(
+  deletedPaths: string[],
+  rootUri: vscode.Uri,
+  fileLog: string[]
+): Promise<void> {
+  if (deletedPaths.length === 0) return;
+  const dirCandidates = new Set<string>();
+  for (const localPath of deletedPaths) {
+    let dir = localPath.includes("/") ? localPath.slice(0, localPath.lastIndexOf("/")) : "";
+    while (dir) {
+      dirCandidates.add(dir);
+      dir = dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "";
+    }
+  }
+  for (const dir of [...dirCandidates].sort((a, b) => b.length - a.length)) {
+    const dirUri = vscode.Uri.joinPath(rootUri, dir);
+    try {
+      if ((await vscode.workspace.fs.readDirectory(dirUri)).length === 0) {
+        await vscode.workspace.fs.delete(dirUri, { useTrash: false });
+        fileLog.push(`  ${dir}/ (directory removed)`);
+      }
+    } catch {
+      // Directory already gone or inaccessible — skip.
+    }
+  }
 }
 
 function resultParts(r: SyncResult): string[] {
