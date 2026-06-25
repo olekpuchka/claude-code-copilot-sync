@@ -3,12 +3,10 @@
 Thanks for your interest in contributing! This guide covers everything you need to go from a fresh
 clone to an open pull request.
 
-Pull requests are welcome for **features, bug fixes, and documentation**. If you're planning a
-larger change, opening an issue first to discuss the approach is appreciated but not required.
+PRs and issues are welcome — features, bug fixes, docs, and questions.
 
 ## Contents
 
-- [What this project is](#what-this-project-is)
 - [Prerequisites](#prerequisites)
 - [Setup](#setup)
 - [Running the extension locally](#running-the-extension-locally)
@@ -18,17 +16,6 @@ larger change, opening an issue first to discuss the approach is appreciated but
 - [Code style](#code-style)
 - [Submitting a pull request](#submitting-a-pull-request)
 - [Versioning and releases](#versioning-and-releases)
-
-## What this project is
-
-This repo is the **AI Setup Sync** VS Code extension — it syncs shared AI setup files
-(Claude Code, GitHub Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex, and more) from
-any GitHub repository you own into your projects.
-
-| Path | What it is |
-| --- | --- |
-| `extension/` | The VS Code extension (TypeScript source, `package.json`, media) |
-| `.github/workflows/release.yml` | CI — builds and publishes releases on `v*` tag pushes |
 
 ## Prerequisites
 

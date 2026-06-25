@@ -2,11 +2,12 @@
 
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue.png)](https://marketplace.visualstudio.com/items?itemName=olekpuchka.ai-setup-sync)
 [![Version](https://img.shields.io/github/v/release/olekpuchka/ai-setup-sync.png?label=version)](https://github.com/olekpuchka/ai-setup-sync/releases)
+[![Stars](https://img.shields.io/github/stars/olekpuchka/ai-setup-sync.png)](https://github.com/olekpuchka/ai-setup-sync/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.png)](https://github.com/olekpuchka/ai-setup-sync/blob/main/LICENSE)
 
 **One repo. Every project. Always in sync.**
 
-Every AI coding tool needs its own config file in every repo. AI Setup Sync maintains yours once
+Every AI coding tool needs its own config files in every repo. AI Setup Sync maintains yours once
 in a GitHub repository and distributes it automatically across every project — Claude Code, GitHub
 Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex, and more. No copy-pasting.
 

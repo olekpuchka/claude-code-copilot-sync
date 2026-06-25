@@ -1,20 +1,19 @@
-# AI Setup Sync
+<div align="center">
+  <img src="extension/media/icon.png" width="128" alt="AI Setup Sync" />
+  <h1>AI Setup Sync</h1>
+  <p><strong>One repo. Every project. Always in sync.</strong></p>
 
-[![Release](https://github.com/olekpuchka/ai-setup-sync/actions/workflows/release.yml/badge.svg)](https://github.com/olekpuchka/ai-setup-sync/actions/workflows/release.yml)
-[![Version](https://img.shields.io/github/v/release/olekpuchka/ai-setup-sync?label=version)](https://github.com/olekpuchka/ai-setup-sync/releases)
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=olekpuchka.ai-setup-sync)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+  [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code-Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=olekpuchka.ai-setup-sync)
+  [![Version](https://img.shields.io/github/v/release/olekpuchka/ai-setup-sync?label=version)](https://github.com/olekpuchka/ai-setup-sync/releases)
+  [![Stars](https://img.shields.io/github/stars/olekpuchka/ai-setup-sync)](https://github.com/olekpuchka/ai-setup-sync/stargazers)
+  [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+</div>
 
-**One repo. Every project. Always in sync.**
-
-Every AI coding tool needs its own config file in every repo. AI Setup Sync maintains yours once
+Every AI coding tool needs its own config files in every repo. AI Setup Sync maintains yours once
 in a GitHub repository and distributes it automatically across every project — Claude Code, GitHub
 Copilot, Cursor, Google Antigravity, Gemini CLI, OpenAI Codex, and more. No copy-pasting.
 
-> **📖 Looking for usage docs?** This page orients you to the repository. For installation,
-> settings, conflict handling, path mappings, and the FAQ, see
-> **[extension/README.md](extension/README.md)** — the full documentation that ships with the
-> Marketplace listing.
+> 📖 For installation, settings, path mappings, conflict handling, and the FAQ, see **[extension/README.md](extension/README.md)**.
 
 ## What it does
 
@@ -30,12 +29,12 @@ Sync triggers automatically on startup, window focus, and settings changes. Push
 
 ```mermaid
 flowchart LR
-    classDef vscode fill:#1a1030,stroke:#8B5CF6,stroke-width:2px,color:#C4B5FD
-    classDef core   fill:#0d1d30,stroke:#58A6FF,stroke-width:2px,color:#93C5FD
-    classDef sync   fill:#1f1208,stroke:#F97316,stroke-width:2px,color:#FED7AA
-    classDef github fill:#0d1f13,stroke:#3FB950,stroke-width:2px,color:#86EFAC
-    classDef local  fill:#061b1f,stroke:#06B6D4,stroke-width:2px,color:#67E8F9
-    classDef state  fill:#1a1a1a,stroke:#6B7280,stroke-width:2px,color:#9CA3AF
+    classDef vscode fill:#1a1030,stroke:#8B5CF6,stroke-width:2px,color:#C4B5FD,font-size:16px
+    classDef core   fill:#0d1d30,stroke:#58A6FF,stroke-width:2px,color:#93C5FD,font-size:16px
+    classDef sync   fill:#1f1208,stroke:#F97316,stroke-width:2px,color:#FED7AA,font-size:16px
+    classDef github fill:#0d1f13,stroke:#3FB950,stroke-width:2px,color:#86EFAC,font-size:16px
+    classDef local  fill:#061b1f,stroke:#06B6D4,stroke-width:2px,color:#67E8F9,font-size:16px
+    classDef state  fill:#1a1a1a,stroke:#6B7280,stroke-width:2px,color:#9CA3AF,font-size:16px
 
     A(["VS CODE EVENTS
     · Extension startup
@@ -87,15 +86,6 @@ flowchart LR
 
 For private or SSO-protected repos, add a token — see the
 [full setup guide](extension/README.md#setting-up-your-repository).
-
-## Repository structure
-
-| Path | What it is |
-| --- | --- |
-| [`extension/`](extension/) | VS Code extension source — TypeScript, `package.json`, media, and the [full docs](extension/README.md) |
-| [`.github/workflows/release.yml`](.github/workflows/release.yml) | CI that builds and publishes releases on `v*` tag pushes |
-| [`CHANGELOG.md`](CHANGELOG.md) | Version history |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide — setup, architecture, and PR guidelines |
 
 ## Contributing
 
