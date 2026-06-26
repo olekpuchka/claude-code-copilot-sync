@@ -4,7 +4,8 @@ import { ConfigError, RateLimitError, RepoRef } from "./github";
 import { initOutput, log, showOutput } from "./output";
 import { readRegistry, setWorkspaceFiles } from "./registry";
 import { getState, saveState } from "./state";
-import { localizeStateFiles, toastSummary, syncFolder } from "./sync";
+import { localizeStateFiles, toastSummary, syncFolder, applyGitExclude } from "./sync";
+import { gitBlobSha } from "./blobSha";
 import { REMOTE_SCHEME, remoteContentProvider } from "./remoteContent";
 import { deleteToken, getToken, setToken } from "./token";
 
@@ -98,6 +99,98 @@ function readSettings(): Settings {
 function parseRepo(raw: string): string | null {
   const m = raw.match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
   return m ? m[1] : null;
+}
+
+// ---------------------------------------------------------------------------
+// File watcher — detects edits to managed files and immediately removes them
+// from .git/info/exclude so they surface in git status / diff.
+// ---------------------------------------------------------------------------
+
+interface WatcherState {
+  /** localPath → remote blob SHA (the SHA last synced from the AI setup repo) */
+  managedFiles: Record<string, string>;
+  /** Paths currently visible to git because their content diverges from remote */
+  modifiedPaths: Set<string>;
+  disposables: vscode.Disposable[];
+}
+
+const workspaceWatchers = new Map<string, WatcherState>();
+
+function refreshWatcher(
+  folder: vscode.WorkspaceFolder,
+  managedFiles: Record<string, string>,
+  initialModifiedPaths: string[]
+): void {
+  // Dispose previous watcher for this folder.
+  const prev = workspaceWatchers.get(folder.uri.fsPath);
+  if (prev) {
+    prev.disposables.forEach((d) => d.dispose());
+  }
+
+  if (Object.keys(managedFiles).length === 0) {
+    workspaceWatchers.delete(folder.uri.fsPath);
+    return;
+  }
+
+  const modifiedPaths = new Set(initialModifiedPaths);
+  const disposables: vscode.Disposable[] = [];
+  let pending = Promise.resolve();
+
+  const handleChangeSingle = async (uri: vscode.Uri): Promise<void> => {
+    // Compute local path relative to the workspace folder.
+    const folderPath = folder.uri.fsPath;
+    const uriPath = uri.fsPath;
+    if (!uriPath.startsWith(folderPath + "/") && !uriPath.startsWith(folderPath + "\\")) {
+      return;
+    }
+    const localPath = uriPath.slice(folderPath.length + 1).replace(/\\/g, "/");
+
+    const remoteSha = managedFiles[localPath];
+    if (remoteSha === undefined) return; // not a managed file
+
+    let changed = false;
+    try {
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      const localSha = gitBlobSha(Buffer.from(bytes));
+      if (localSha !== remoteSha) {
+        changed = !modifiedPaths.has(localPath);
+        modifiedPaths.add(localPath);
+      } else {
+        changed = modifiedPaths.has(localPath);
+        modifiedPaths.delete(localPath);
+      }
+    } catch {
+      // File deleted — leave exclude state as-is; next sync will restore and re-evaluate.
+      return;
+    }
+
+    if (!changed) return; // exclude block unchanged, skip the write
+
+    // Skip the write while a sync is in progress — sync will write the correct exclude at the end.
+    if (syncing) return;
+
+    const excludePaths = Object.keys(managedFiles).filter((p) => !modifiedPaths.has(p));
+    await applyGitExclude(
+      folder,
+      excludePaths.length > 0 ? [...excludePaths, ".worktreeinclude"] : excludePaths
+    ).catch((err) =>
+      log(`Warning: failed to update git exclude: ${err instanceof Error ? err.message : String(err)}`)
+    );
+  };
+
+  const handleChange = (uri: vscode.Uri): void => {
+    pending = pending.then(() => handleChangeSingle(uri)).catch(() => {});
+  };
+
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(folder, "**")
+  );
+  disposables.push(watcher.onDidChange(handleChange));
+  disposables.push(watcher.onDidCreate(handleChange));
+  disposables.push(watcher.onDidDelete(handleChange));
+  disposables.push(watcher);
+
+  workspaceWatchers.set(folder.uri.fsPath, { managedFiles, modifiedPaths, disposables });
 }
 
 /** A re-entrancy guard so overlapping triggers don't sync the same folders twice. */
@@ -269,6 +362,9 @@ async function runSync(
             pathMappings: settings.pathMappings,
           }
         );
+        // Refresh the file watcher so edits to managed files surface in git immediately.
+        const reg = readRegistry();
+        refreshWatcher(folder, reg.workspaces[folder.uri.fsPath]?.files ?? {}, result.locallyModifiedPaths);
         if (result.noFilesFound) {
           noFilesFound = true;
         } else if (!result.noChanges) {
@@ -278,6 +374,14 @@ async function runSync(
       } catch (err) {
         handleSyncError(err, interactive);
         hadError = true;
+        // Preserve any pre-existing locally-modified paths so they stay visible in git.
+        const regErr = readRegistry();
+        const errFiles = regErr.workspaces[folder.uri.fsPath]?.files ?? {};
+        const prevWatcher = workspaceWatchers.get(folder.uri.fsPath);
+        const prevModified = prevWatcher
+          ? [...prevWatcher.modifiedPaths].filter((p) => errFiles[p] !== undefined)
+          : [];
+        refreshWatcher(folder, errFiles, prevModified);
       }
     }
 
@@ -370,6 +474,7 @@ async function removeSyncedFiles(context: vscode.ExtensionContext): Promise<void
       allDeletedPaths.push({ folder, rel });
     }
     setWorkspaceFiles(folder.uri.fsPath, {});
+    refreshWatcher(folder, {}, []);
     await saveState(context, folder, { ref: "", files: {} });
   }
 
@@ -419,6 +524,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   setStatus(settings.repository ? "idle" : "unconfigured");
   statusBar.show();
   context.subscriptions.push(statusBar);
+  context.subscriptions.push({
+    dispose: () => {
+      for (const state of workspaceWatchers.values()) {
+        state.disposables.forEach((d) => d.dispose());
+      }
+      workspaceWatchers.clear();
+    },
+  });
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(REMOTE_SCHEME, remoteContentProvider)

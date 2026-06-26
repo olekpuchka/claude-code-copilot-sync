@@ -57,6 +57,8 @@ interface SyncResult {
   noChanges: boolean;
   /** True when the tree was fetched but no files matched the configured paths — likely a wrong branch or targetFolders. */
   noFilesFound: boolean;
+  /** Workspace-relative paths of managed files whose local content diverges from the remote — these are removed from .git/info/exclude so git can see them. */
+  locallyModifiedPaths: string[];
 }
 
 /**
@@ -173,6 +175,7 @@ export async function syncFolder(
     // One pass: detect missing and locally-modified files simultaneously (OPT-1).
     const missing: { repoPath: string; localPath: string }[] = [];
     const locallyModified: PlannedFile[] = [];
+    const acknowledgedLocalPaths = new Set<string>();
     let syncableCount = 0;
     // Process mapping-matched state entries first so seenLocalPaths304 keeps the
     // mapping-priority winner for each local path, mirroring the plannedMap dedup logic
@@ -207,9 +210,13 @@ export async function syncFolder(
         continue;
       }
       const localSha = gitBlobSha(onDisk);
-      if (localSha !== lastSyncedSha && readAck(state.acknowledged, repoPath)?.localSha !== localSha) {
-        // entry.sha == lastSyncedSha because the repo hasn't changed (304).
-        locallyModified.push({ entry: { path: repoPath, sha: lastSyncedSha, type: "blob" }, localPath, classification: "conflict" });
+      if (localSha !== lastSyncedSha) {
+        if (readAck(state.acknowledged, repoPath)?.localSha !== localSha) {
+          // entry.sha == lastSyncedSha because the repo hasn't changed (304).
+          locallyModified.push({ entry: { path: repoPath, sha: lastSyncedSha, type: "blob" }, localPath, classification: "conflict" });
+        } else {
+          acknowledgedLocalPaths.add(localPath);
+        }
       }
     }
 
@@ -237,8 +244,11 @@ export async function syncFolder(
           }
         }
         const managedPaths = Object.keys(localFiles);
+        // Locally-modified files are already visible to git — keep them out of the exclude.
+        const modifiedLocalPaths304 = new Set([...locallyModified.map((p) => p.localPath), ...acknowledgedLocalPaths]);
+        const excludePaths304 = managedPaths.filter((lp) => !modifiedLocalPaths304.has(lp));
         setWorkspaceFiles(workspaceFolder.uri.fsPath, localFiles);
-        await applyGitExclude(workspaceFolder, managedPaths.length > 0 ? [...managedPaths, ".worktreeinclude"] : managedPaths);
+        await applyGitExclude(workspaceFolder, excludePaths304.length > 0 ? [...excludePaths304, ".worktreeinclude"] : excludePaths304);
         await applyWorktreeInclude(workspaceFolder, managedPaths, targetFolders, pathMappings);
       } catch (err) {
         log(`Warning: failed to update registry/gitignore after restore: ${err instanceof Error ? err.message : String(err)}`);
@@ -295,6 +305,22 @@ export async function syncFolder(
         treeEtag: wasDismissed ? undefined : state.treeEtag,
       };
       await saveState(context, workspaceFolder, newState);
+
+      // Update exclude: overwritten files go back in; kept files stay visible to git.
+      try {
+        const keptLocalPaths = new Set([...toKeep.map((p) => p.localPath), ...acknowledgedLocalPaths]);
+        const allLocalPaths: string[] = [];
+        const seen304 = new Set<string>();
+        for (const [repoPath] of sortedStateEntries) {
+          if (!isSyncable(repoPath, targetFolders, pathMappings)) continue;
+          const lp = toLocalPath(repoPath, sortedMappings);
+          if (!seen304.has(lp)) { seen304.add(lp); allLocalPaths.push(lp); }
+        }
+        const excludeAfter304 = allLocalPaths.filter((lp) => !keptLocalPaths.has(lp));
+        await applyGitExclude(workspaceFolder, excludeAfter304.length > 0 ? [...excludeAfter304, ".worktreeinclude"] : excludeAfter304);
+      } catch (err) {
+        log(`Warning: failed to update git exclude after 304 conflict resolution: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     const fileLog304: string[] = [];
@@ -318,6 +344,7 @@ export async function syncFolder(
       keptDeleted: 0,
       noChanges: addedCount === 0 && updatedCount === 0,
       noFilesFound: false,
+      locallyModifiedPaths: [...toKeep.map((p) => p.localPath), ...acknowledgedLocalPaths],
     };
     if (fileLog304.length > 0) {
       log(summarize(workspaceFolder.name, result304).replace(/\.$/, ":"));
@@ -414,6 +441,18 @@ export async function syncFolder(
     workspaceFolder
   );
 
+  // Managed files whose local content diverges from the remote (kept mine / acknowledged).
+  // These are removed from .git/info/exclude so they show up in git status/diff immediately.
+  const locallyModifiedLocalPaths = new Set(
+    planned
+      .filter(
+        (p) =>
+          p.classification === "acknowledged" ||
+          (p.classification === "conflict" && !overwriteConflict(p.localPath))
+      )
+      .map((p) => p.localPath)
+  );
+
   // Files that are removed from the repo but were previously synced by us.
   const allRepoPaths = new Set(tree.entries.map((e) => e.path));
   const remotePaths = new Set(entries.map((e) => e.path));
@@ -438,6 +477,7 @@ export async function syncFolder(
     keptDeleted: 0,
     noChanges: true,
     noFilesFound: entries.length === 0,
+    locallyModifiedPaths: [],
   };
 
   // acknowledged is rebuilt entry-by-entry in the loop below: files classified
@@ -655,13 +695,17 @@ export async function syncFolder(
 
   try {
     const managedPaths = Object.keys(localFiles);
+    // Locally-modified files are removed from the exclude block so they surface in git
+    // status/diff. Everything else stays hidden to avoid polluting the project's git state.
+    const excludePaths = managedPaths.filter((lp) => !locallyModifiedLocalPaths.has(lp));
     setWorkspaceFiles(workspaceFolder.uri.fsPath, localFiles);
-    await applyGitExclude(workspaceFolder, managedPaths.length > 0 ? [...managedPaths, ".worktreeinclude"] : managedPaths);
+    await applyGitExclude(workspaceFolder, excludePaths.length > 0 ? [...excludePaths, ".worktreeinclude"] : excludePaths);
     await applyWorktreeInclude(workspaceFolder, managedPaths, targetFolders, pathMappings);
   } catch (err) {
     log(`Warning: failed to update registry/gitignore: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  result.locallyModifiedPaths = [...locallyModifiedLocalPaths];
   result.noChanges = result.added === 0 && result.updated === 0 && result.deleted === 0 && result.keptDeleted === 0;
   return result;
 }
@@ -672,7 +716,7 @@ export async function syncFolder(
  * tracked `.gitignore` means the rules never show up as a change to commit.
  * No-ops if the workspace is not a plain git repository.
  */
-async function applyGitExclude(
+export async function applyGitExclude(
   workspaceFolder: vscode.WorkspaceFolder,
   managedPaths: string[]
 ): Promise<void> {
@@ -746,6 +790,7 @@ async function applyWorktreeInclude(
     await vscode.workspace.fs.writeFile(includeUri, Buffer.from(next, "utf8"));
   }
 }
+
 
 interface ConflictResolution {
   shouldOverwrite: (path: string) => boolean;

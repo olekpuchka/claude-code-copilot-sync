@@ -57,7 +57,7 @@ detects those edits and lets them choose what to keep, so no work is ever silent
 - **Protects local edits** — detects local edits and prompts per file, with a built-in diff viewer before anything is overwritten.
 - **Maps paths flexibly** — translate any repo path to the local path a tool expects (e.g. `Claude/` → `.claude/`), or map a whole subfolder to your project root with `"projectA": "/"`.
 - **Handles deletions safely** — files removed from the repo or excluded by a settings change are removed locally; your local edits are protected, and emptied directories are cleaned up.
-- **Stays out of git** — synced files are added to `.git/info/exclude`, so they never clutter your pending changes.
+- **Stays out of git** — synced files are added to `.git/info/exclude` so they never clutter your pending changes. Edit one locally and it surfaces automatically so you can see the diff.
 - **Works across parallel agent sessions** — synced configs are automatically available in every Claude Code and Codex worktree, so AI tools have your setup no matter which isolated session they run in.
 - **Supports private, SSO, and Enterprise Server repos** — GitHub token stored securely in the OS keychain (VS Code SecretStorage).
 - **Fully configurable** — choose the branch and which folders to sync.
@@ -361,6 +361,12 @@ Synced files are automatically added to `.git/info/exclude` (per-clone, never co
 don't show up as pending changes. Only the exact synced files are excluded — anything you create
 yourself in the same folders (e.g. a project-specific skill) stays visible to git and committable
 normally.
+
+If you edit a synced file locally, the extension detects the change on save and removes it from
+the exclude list immediately — the file surfaces in Source Control and `git status` without any
+manual step. The next time you sync, you'll be prompted to keep your edits or take the repo
+version; taking the repo version puts the file back into the exclude list, while keeping your
+edits leaves it visible so the drift stays inspectable.
 
 ### Parallel agent sessions (worktrees)
 

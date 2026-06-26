@@ -220,7 +220,7 @@ async function getJson(
   return { data: JSON.parse(body.toString("utf8")), etag: newEtag, notModified: false };
 }
 
-export interface TreeResult {
+interface TreeResult {
   entries: TreeEntry[];
   etag?: string;
   /** True when the tree is unchanged since the supplied etag (HTTP 304). */

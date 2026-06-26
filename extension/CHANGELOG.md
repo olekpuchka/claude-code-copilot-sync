@@ -4,6 +4,14 @@ All notable changes to the **AI Setup Sync** extension are documented here.
 
 ---
 
+## [1.5.3] — 2026-06-26
+
+### Added
+
+- **Locally-modified synced files now visible in git** — if you edit a file that AI Setup Sync manages, it is temporarily removed from `.git/info/exclude` so it surfaces in Source Control and `git status`. This makes local changes inspectable and committable (if intentional). The file goes back into the exclude list as soon as you choose *Take repo version* during the next conflict prompt, or when the conflict is otherwise resolved.
+
+---
+
 ## [1.5.2] — 2026-06-26
 
 ### Fixed

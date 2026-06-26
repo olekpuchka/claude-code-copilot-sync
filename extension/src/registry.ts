@@ -12,7 +12,7 @@ interface WorkspaceRecord {
   files: Record<string, string>;
 }
 
-export interface Registry {
+interface Registry {
   workspaces: Record<string, WorkspaceRecord>;
 }
 

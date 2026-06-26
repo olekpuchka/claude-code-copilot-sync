@@ -7,7 +7,7 @@ import * as path from "path";
 import { gitBlobSha } from "./blobSha";
 import { MARKER_BEGIN, stripBlock } from "./gitignore";
 
-export interface CleanupSummary {
+interface CleanupSummary {
   /** Repo-relative paths of files that were successfully deleted. */
   deletedPaths: string[];
   /** Repo-relative paths of files kept because their content differed from the last synced SHA. */
