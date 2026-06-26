@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { gitBlobSha } from "./blobSha";
 import { getRawFile, getTree, RepoRef, TreeEntry, ConfigError, RateLimitError } from "./github";
-import { getState, saveState, SyncState } from "./state";
+import { getState, saveState, SyncState, AckEntry, readAck } from "./state";
 import { computePatterns, computeWorktreePatterns, upsertBlock, stripBlock, MARKER_BEGIN } from "./gitignore";
 import { readRegistry, setWorkspaceFiles } from "./registry";
 import { log } from "./output";
@@ -138,7 +138,7 @@ async function readIfExists(uri: vscode.Uri): Promise<Buffer | undefined> {
   }
 }
 
-type Classification = "new" | "safe-update" | "conflict" | "up-to-date";
+type Classification = "new" | "safe-update" | "conflict" | "acknowledged" | "up-to-date";
 
 interface PlannedFile {
   entry: TreeEntry;
@@ -172,7 +172,6 @@ export async function syncFolder(
   if (tree.notModified) {
     // One pass: detect missing and locally-modified files simultaneously (OPT-1).
     const missing: { repoPath: string; localPath: string }[] = [];
-    const acknowledged = state.acknowledged ?? {};
     const locallyModified: PlannedFile[] = [];
     let syncableCount = 0;
     // Process mapping-matched state entries first so seenLocalPaths304 keeps the
@@ -208,7 +207,7 @@ export async function syncFolder(
         continue;
       }
       const localSha = gitBlobSha(onDisk);
-      if (localSha !== lastSyncedSha && acknowledged[repoPath] !== localSha) {
+      if (localSha !== lastSyncedSha && readAck(state.acknowledged, repoPath)?.localSha !== localSha) {
         // entry.sha == lastSyncedSha because the repo hasn't changed (304).
         locallyModified.push({ entry: { path: repoPath, sha: lastSyncedSha, type: "blob" }, localPath, classification: "conflict" });
       }
@@ -246,7 +245,11 @@ export async function syncFolder(
       }
     }
 
-    let newAcknowledged = { ...acknowledged };
+    const newAcknowledged: Record<string, AckEntry> = {};
+    for (const k of Object.keys(state.acknowledged ?? {})) {
+      const ack = readAck(state.acknowledged, k);
+      if (ack) newAcknowledged[k] = ack;
+    }
     let wasDismissed = false;
     let updatedCount = 0;
     let toOverwrite: typeof locallyModified = [];
@@ -278,7 +281,7 @@ export async function syncFolder(
           const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, p.localPath);
           const onDisk = await readIfExists(fileUri);
           if (onDisk) {
-            newAcknowledged[p.entry.path] = gitBlobSha(onDisk);
+            newAcknowledged[p.entry.path] = { localSha: gitBlobSha(onDisk), repoSha: p.entry.sha };
           }
         }
       }
@@ -392,7 +395,14 @@ export async function syncFolder(
       plannedMap.set(localPath, { entry, localPath, classification: "safe-update", fromMapping });
     } else {
       // Local content diverges from both repo and our last write.
-      plannedMap.set(localPath, { entry, localPath, classification: "conflict", fromMapping });
+      // If the user previously said "Keep mine" and neither side has changed since,
+      // skip the prompt and carry the acknowledgement forward silently.
+      const ack = readAck(state.acknowledged, entry.path);
+      if (ack && ack.localSha === localSha && ack.repoSha === entry.sha) {
+        plannedMap.set(localPath, { entry, localPath, classification: "acknowledged", fromMapping });
+      } else {
+        plannedMap.set(localPath, { entry, localPath, classification: "conflict", fromMapping });
+      }
     }
   }
   const planned = [...plannedMap.values()];
@@ -430,8 +440,9 @@ export async function syncFolder(
     noFilesFound: entries.length === 0,
   };
 
-  // acknowledged is intentionally omitted — a full tree fetch means the repo
-  // changed, so prior "Keep mine for now" acknowledgements no longer apply.
+  // acknowledged is rebuilt entry-by-entry in the loop below: files classified
+  // "acknowledged" carry their ack forward; files kept via the conflict dialog
+  // write a fresh ack. Everything else (overwritten, up-to-date, new) gets none.
   const newState: SyncState = {
     ref: repoRef.ref,
     repoUrl: repoRef.url,
@@ -444,10 +455,24 @@ export async function syncFolder(
     if (p.classification === "up-to-date") {
       result.upToDate++;
       newState.files[p.entry.path] = p.entry.sha;
+    } else if (p.classification === "acknowledged") {
+      // User previously said "Keep mine" and neither local nor upstream changed — skip silently.
+      result.upToDate++;
+      newState.files[p.entry.path] = p.entry.sha;
+      if (!newState.acknowledged) newState.acknowledged = {};
+      newState.acknowledged[p.entry.path] = readAck(state.acknowledged, p.entry.path)!;
     } else if (p.classification === "conflict" && !overwriteConflict(p.localPath)) {
       if (!wasDismissed) {
         result.skipped++;
         fileLog.push(`  ${p.localPath} (kept — your edits)`);
+        // Store an ack so subsequent syncs (304 or full-tree) won't re-prompt as long
+        // as neither the local file nor the upstream file changes.
+        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, p.localPath);
+        const onDisk = await readIfExists(fileUri);
+        if (onDisk) {
+          if (!newState.acknowledged) newState.acknowledged = {};
+          newState.acknowledged[p.entry.path] = { localSha: gitBlobSha(onDisk), repoSha: p.entry.sha };
+        }
       }
       newState.files[p.entry.path] = p.entry.sha;
     } else {
@@ -565,22 +590,8 @@ export async function syncFolder(
   // If the user dismissed any conflict prompt (Escape/X) without making a
   // choice, don't cache the tree ETag — the next sync must re-fetch the tree
   // and re-offer the dialog.
-  // Carry over "Keep mine" acknowledgements for files whose repo SHA hasn't changed.
-  // A full-tree sync triggered by a settings change (not a repo change) would otherwise
-  // wipe these, causing a spurious re-prompt on the very next 304 sync for a file the
-  // user already decided to keep.
-  if (state.acknowledged) {
-    const carried: Record<string, string> = {};
-    for (const [repoPath, ackSha] of Object.entries(state.acknowledged)) {
-      if (state.files[repoPath] !== undefined && state.files[repoPath] === newState.files[repoPath]) {
-        carried[repoPath] = ackSha;
-      }
-    }
-    if (Object.keys(carried).length > 0) {
-      newState.acknowledged = carried;
-    }
-  }
-
+  // Note: acknowledged entries are preserved inline during the main loop above
+  // (the "acknowledged" classification) — no separate carry-over step needed.
   if (wasDismissed || deleteWasDismissed) {
     newState.treeEtag = undefined;
   }
@@ -782,7 +793,7 @@ async function closeFileDiff(localPath: string): Promise<void> {
  * Decides which conflicting files get overwritten, honoring the policy.
  * `wasDismissed` is true when the user pressed Escape/X without choosing —
  * the caller uses this to avoid caching the tree ETag so the dialog re-appears
- * on the next sync. An explicit "Keep mine for now" is not a dismissal.
+ * on the next sync. An explicit "Keep mine" is not a dismissal.
  */
 async function resolveConflicts(
   conflicts: PlannedFile[],
@@ -804,7 +815,7 @@ async function resolveConflicts(
       { modal: true },
       "Review each",
       "Overwrite all",
-      "Keep mine for now"
+      "Keep mine"
     );
 
     if (choice === undefined) {
@@ -814,7 +825,7 @@ async function resolveConflicts(
       conflicts.forEach((c) => overwrite.add(c.localPath));
       return { shouldOverwrite: (p) => overwrite.has(p), wasDismissed: false };
     }
-    if (choice === "Keep mine for now") {
+    if (choice === "Keep mine") {
       return noop;
     }
     // "Review each" — fall through to per-file loop.

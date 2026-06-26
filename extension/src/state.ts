@@ -14,11 +14,34 @@ export interface SyncState {
   /** repo-relative path -> git blob SHA we last wrote to disk */
   files: Record<string, string>;
   /**
-   * Paths the user said "Keep mine for now" on during a 304 local-modification check,
-   * mapped to the local blob SHA at that moment. We skip re-prompting while the
-   * local SHA is unchanged. Cleared when the repo tree changes (full sync).
+   * Paths the user said "Keep mine" on. Stored as { localSha, repoSha } so we
+   * can suppress re-prompts even across full-tree syncs, as long as neither the local
+   * file nor the upstream file has changed since the user's decision.
+   * Read via readAck() to handle the legacy plain-string format.
    */
-  acknowledged?: Record<string, string>;
+  acknowledged?: Record<string, AckEntry | string>;
+}
+
+/** A single "Keep mine" acknowledgement entry. */
+export interface AckEntry {
+  localSha: string;
+  repoSha: string;
+}
+
+/**
+ * Reads an acknowledgement entry safely, migrating the legacy plain-string format
+ * (which stored only localSha) to AckEntry. Legacy entries get repoSha: '' so they
+ * never match a real upstream SHA — the user will be prompted once more, after which
+ * the new format is stored.
+ */
+export function readAck(
+  acknowledged: Record<string, AckEntry | string> | undefined,
+  repoPath: string
+): AckEntry | undefined {
+  const val = acknowledged?.[repoPath];
+  if (!val) return undefined;
+  if (typeof val === "string") return { localSha: val, repoSha: "" };
+  return val;
 }
 
 const KEY_PREFIX = "aiSetupSync.syncState:";

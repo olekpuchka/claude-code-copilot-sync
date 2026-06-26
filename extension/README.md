@@ -320,7 +320,7 @@ On each sync the extension compares file content against what it last wrote:
   | Choice | Effect |
   | --- | --- |
   | *Overwrite all* | Replace with the repo version. (Shown when multiple files conflict; a single file goes straight to the per-file dialog.) |
-  | *Keep mine for now* | Leave your edits; won't re-prompt while your local version stays unchanged. |
+  | *Keep mine* | Leave your edits; won't re-prompt as long as your local version **and** the upstream file both stay unchanged. |
   | *Review each* | Decide file by file — each dialog has a *Show diff* button to compare local vs. repository. |
   | Escape / close | Re-prompts on the next sync. |
 

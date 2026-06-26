@@ -4,6 +4,15 @@ All notable changes to the **AI Setup Sync** extension are documented here.
 
 ---
 
+## [1.5.2] — 2026-06-26
+
+### Fixed
+
+- **"Keep mine" now persists across all sync types** — previously, choosing *Keep mine* during a full-tree sync (triggered when the repo changes) did not write an acknowledgement entry, so the next 304 sync would re-prompt for the same conflict. Acknowledgements are now written consistently whether the prompt appeared during a 304 or full-tree sync. Once you choose *Keep mine*, you won't be re-prompted as long as neither your local file nor the upstream file has changed.
+- **Acknowledged files counted in sync summary** — files silently carried forward via a prior *Keep mine* acknowledgement are now included in the "up to date" count shown after each sync.
+
+---
+
 ## [1.5.1] — 2026-06-26
 
 ### Added
@@ -48,11 +57,11 @@ All notable changes to the **AI Setup Sync** extension are documented here.
 
 ### Changed
 
-- **"Keep mine for now" conflict button** — the bulk conflict dialog button was renamed from "Keep all mine" to "Keep mine for now" to better reflect that the choice is per-sync, not permanent.
+- **"Keep mine" conflict button** — the bulk conflict dialog button was renamed from "Keep all mine" to "Keep mine" to better reflect that the choice is per-sync, not permanent.
 
 ### Fixed
 
-- **Conflict dialog survives a failed diff fetch** — clicking "Show diff" during conflict resolution no longer aborts the entire conflict loop if the remote file can't be fetched (e.g. missing token on an Enterprise Server repo). The error is shown as a toast and the dialog re-appears so you can still choose Overwrite or Keep mine for now.
+- **Conflict dialog survives a failed diff fetch** — clicking "Show diff" during conflict resolution no longer aborts the entire conflict loop if the remote file can't be fetched (e.g. missing token on an Enterprise Server repo). The error is shown as a toast and the dialog re-appears so you can still choose Overwrite or Keep mine.
 - **Actionable error UI after parallel download failure** — when a file download fails with a token or auth error inside a parallel batch, the "Set GitHub Token" button now correctly appears instead of a generic error message.
 
 ---
